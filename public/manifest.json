@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Fokus",
+  "version": "1.0.0",
+  "description": "AI-powered productivity tracker",
+  "permissions": [
+    "tabs",
+    "idle",
+    "storage",
+    "activeTab",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "*://*.twitter.com/*",
+    "*://*.x.com/*",
+    "*://*.facebook.com/*",
+    "*://*.instagram.com/*",
+    "*://*.linkedin.com/*",
+    "*://*.reddit.com/*",
+    "*://*.tiktok.com/*",
+    "*://*.youtube.com/*",
+    "*://*.netflix.com/*",
+    "*://*.twitch.tv/*",
+    "*://*.spotify.com/*",
+    "*://*.hulu.com/*",
+    "*://*.disneyplus.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Fokus"
+  }
+}
