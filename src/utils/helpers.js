@@ -1,28 +1,45 @@
-// Domain categorization
-const workDomains = [
-  'github.com', 'gitlab.com', 'bitbucket.org', 'docs.google.com',
-  'sheets.google.com', 'drive.google.com', 'notion.so', 'linear.app',
-  'figma.com', 'slack.com', 'stackoverflow.com', 'localhost', 'vercel.app'
+// ============================================
+// 🤖 AI-POWERED DOMAIN CATEGORIZATION
+// Categories are cached in Chrome storage
+// ============================================
+
+// Developer API key (from .env) - Used for category classification
+// This is YOUR key, baked into the build
+const DEV_API_KEY = import.meta.env.VITE_GROQ_API_KEY || '';
+
+// Get developer API key (for categorization)
+export const getDevApiKey = () => DEV_API_KEY;
+
+// Get user API key (for chat/insights) - from settings
+export const getUserApiKey = async () => {
+  try {
+    const { settings = {} } = await chrome.storage.local.get('settings');
+    return settings.groqApiKey || '';
+  } catch {
+    return '';
+  }
+};
+
+// Valid categories
+export const CATEGORIES = ['Work', 'Social', 'Entertainment', 'Other'];
+
+// Domains to ignore (browser internal pages)
+const ignoredDomains = [
+  'newtab', 'extensions', 'settings', 'history', 'bookmarks', 
+  'downloads', 'chrome', 'about', 'blank', 'devtools', 'chrome-extension'
 ];
 
-const socialDomains = [
-  'twitter.com', 'x.com', 'facebook.com', 'instagram.com', 
-  'linkedin.com', 'reddit.com', 'tiktok.com'
-];
-
-const entertainmentDomains = [
-  'youtube.com', 'netflix.com', 'twitch.tv', 'spotify.com', 
-  'hulu.com', 'disneyplus.com'
-];
-
-// Domains to block in focus mode
-export const distractingDomains = [...socialDomains, ...entertainmentDomains];
-
-export const categorize = (domain) => {
-  if (workDomains.some(w => domain.includes(w))) return 'Work';
-  if (socialDomains.some(s => domain.includes(s))) return 'Social';
-  if (entertainmentDomains.some(e => domain.includes(e))) return 'Entertainment';
-  return 'Other';
+// Check if domain should be filtered out
+export const shouldIgnoreDomain = (domain) => {
+  if (!domain) return true;
+  return ignoredDomains.some(ignored => 
+    domain === ignored || 
+    domain.includes(ignored) ||
+    domain.startsWith('chrome') ||
+    domain.startsWith('about') ||
+    domain.startsWith('edge') ||
+    domain.startsWith('brave')
+  );
 };
 
 // Beige/Brown theme colors
@@ -31,6 +48,188 @@ export const categoryColors = {
   Social: '#8b5a2b',
   Entertainment: '#c67c3b',
   Other: '#9a8577'
+};
+
+// In-memory cache for categories (synced with storage)
+let categoryCache = {};
+
+// Load category cache from storage
+export const loadCategoryCache = async () => {
+  try {
+    const { domainCategories = {} } = await chrome.storage.local.get('domainCategories');
+    categoryCache = domainCategories;
+    return categoryCache;
+  } catch {
+    return {};
+  }
+};
+
+// Save category cache to storage
+const saveCategoryCache = async () => {
+  try {
+    await chrome.storage.local.set({ domainCategories: categoryCache });
+  } catch {}
+};
+
+// Get category from cache (sync - for immediate use)
+export const categorize = (domain) => {
+  return categoryCache[domain] || 'Other';
+};
+
+// AI categorization - calls Groq to categorize a domain
+export const categorizeDomainWithAI = async (apiKey, domain) => {
+  // Return cached if exists
+  if (categoryCache[domain]) {
+    return categoryCache[domain];
+  }
+
+  // No API key? Return Other
+  if (!apiKey) {
+    return 'Other';
+  }
+
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        messages: [{
+          role: 'user',
+          content: `Categorize this website domain into exactly ONE category.
+
+Domain: ${domain}
+
+Categories:
+- Work: coding, documentation, productivity tools, professional sites (github, notion, slack, stackoverflow, jira, figma, google docs, etc.)
+- Social: social media, messaging, networking (twitter, facebook, instagram, reddit, linkedin, discord, etc.)
+- Entertainment: videos, streaming, games, music, news, shopping (youtube, netflix, twitch, spotify, amazon, etc.)
+- Other: anything that doesn't fit above
+
+Reply with ONLY the category name, nothing else. Just one word: Work, Social, Entertainment, or Other.`
+        }],
+        max_tokens: 10,
+        temperature: 0
+      })
+    });
+
+    const json = await res.json();
+    const response = json.choices?.[0]?.message?.content?.trim() || 'Other';
+    
+    // Extract valid category from response
+    const category = CATEGORIES.find(c => 
+      response.toLowerCase().includes(c.toLowerCase())
+    ) || 'Other';
+    
+    // Cache the result
+    categoryCache[domain] = category;
+    await saveCategoryCache();
+    
+    return category;
+  } catch {
+    return 'Other';
+  }
+};
+
+// Batch categorize multiple domains at once (more efficient)
+export const categorizeDomainsWithAI = async (apiKey, domains) => {
+  // Filter out already cached domains
+  const uncachedDomains = domains.filter(d => !categoryCache[d]);
+  
+  if (uncachedDomains.length === 0) {
+    return categoryCache;
+  }
+
+  if (!apiKey) {
+    // No API key - set all to Other
+    uncachedDomains.forEach(d => { categoryCache[d] = 'Other'; });
+    return categoryCache;
+  }
+
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        messages: [{
+          role: 'user',
+          content: `Categorize each website domain into exactly ONE category.
+
+Domains:
+${uncachedDomains.map((d, i) => `${i + 1}. ${d}`).join('\n')}
+
+Categories:
+- Work: coding, documentation, productivity tools, professional sites
+- Social: social media, messaging, networking
+- Entertainment: videos, streaming, games, music, news, shopping
+- Other: anything that doesn't fit above
+
+Reply in this exact format, one per line:
+domain1: Category
+domain2: Category
+...
+
+Only use: Work, Social, Entertainment, or Other.`
+        }],
+        max_tokens: 200,
+        temperature: 0
+      })
+    });
+
+    const json = await res.json();
+    const response = json.choices?.[0]?.message?.content || '';
+    
+    // Parse response
+    response.split('\n').forEach(line => {
+      const match = line.match(/^(.+?):\s*(Work|Social|Entertainment|Other)/i);
+      if (match) {
+        const domain = match[1].trim().replace(/^\d+\.\s*/, '');
+        const category = CATEGORIES.find(c => 
+          c.toLowerCase() === match[2].toLowerCase()
+        ) || 'Other';
+        
+        // Find matching domain (fuzzy match)
+        const matchedDomain = uncachedDomains.find(d => 
+          d.includes(domain) || domain.includes(d)
+        );
+        if (matchedDomain) {
+          categoryCache[matchedDomain] = category;
+        }
+      }
+    });
+    
+    // Set remaining uncached to Other
+    uncachedDomains.forEach(d => {
+      if (!categoryCache[d]) categoryCache[d] = 'Other';
+    });
+    
+    await saveCategoryCache();
+    return categoryCache;
+  } catch {
+    uncachedDomains.forEach(d => { categoryCache[d] = 'Other'; });
+    return categoryCache;
+  }
+};
+
+// Manually override a domain's category
+export const setDomainCategory = async (domain, category) => {
+  if (CATEGORIES.includes(category)) {
+    categoryCache[domain] = category;
+    await saveCategoryCache();
+  }
+};
+
+// Distracting domains (for Focus Mode) - Social + Entertainment
+export const isDistractingSite = (domain) => {
+  const category = categorize(domain);
+  return category === 'Social' || category === 'Entertainment';
 };
 
 export const formatTime = (seconds) => {

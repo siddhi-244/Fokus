@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { Settings, BarChart3, Shield, ShieldOff, Flame, Target, Brain } from 'lucide-react';
-import { categorize, categoryColors, formatTime, getTodayKey, calculateStreak, getAIInsight } from '../utils/helpers';
+import { categorize, categoryColors, formatTime, getTodayKey, calculateStreak, getAIInsight, loadCategoryCache, categorizeDomainsWithAI, getDevApiKey, shouldIgnoreDomain } from '../utils/helpers';
 import './App.css';
 
 export default function App() {
@@ -13,6 +13,10 @@ export default function App() {
   const [streak, setStreak] = useState(0);
   const [focusMode, setFocusMode] = useState(false);
   const [insight, setInsight] = useState('');
+  const [categorizing, setCategorizing] = useState(false);
+
+  // Developer API key (from .env) - for categorization
+  const devApiKey = getDevApiKey();
 
   useEffect(() => {
     loadData();
@@ -25,30 +29,56 @@ export default function App() {
     setApiKeyInput(s.groqApiKey || '');
     setFocusMode(s.focusModeEnabled || false);
 
-    const currentStreak = calculateStreak(trackingData);
-    setStreak(currentStreak);
+    // Load cached categories first
+    await loadCategoryCache();
 
     const today = getTodayKey();
     const todayData = trackingData[today] || {};
+    // Filter out internal browser pages (newtab, chrome://, etc.)
+    const domainNames = Object.keys(todayData).filter(k => k !== '_idle' && !shouldIgnoreDomain(k));
 
-    const domains = Object.entries(todayData)
-      .filter(([k]) => k !== '_idle')
-      .map(([domain, d]) => ({
+    // First render with cached categories
+    let domains = domainNames
+      .map(domain => ({
         domain,
-        time: d.time || 0,
+        time: todayData[domain].time || 0,
         category: categorize(domain)
       }))
       .sort((a, b) => b.time - a.time);
 
-    const totalTime = domains.reduce((sum, d) => sum + d.time, 0);
-    const focusTime = domains.filter(d => d.category === 'Work').reduce((sum, d) => sum + d.time, 0);
+    let totalTime = domains.reduce((sum, d) => sum + d.time, 0);
+    let focusTime = domains.filter(d => d.category === 'Work').reduce((sum, d) => sum + d.time, 0);
+    setData({ domains, totalTime, focusTime });
 
-    const newData = { domains, totalTime, focusTime };
-    setData(newData);
+    // Calculate streak with current categories
+    const currentStreak = calculateStreak(trackingData);
+    setStreak(currentStreak);
 
-    // Get AI insight
+    // Categorize domains with DEV API key (your key from .env)
+    if (devApiKey && domainNames.length > 0) {
+      setCategorizing(true);
+      await categorizeDomainsWithAI(devApiKey, domainNames);
+      
+      // Re-render with AI categories
+      domains = domainNames
+        .map(domain => ({
+          domain,
+          time: todayData[domain].time || 0,
+          category: categorize(domain)
+        }))
+        .sort((a, b) => b.time - a.time);
+
+      totalTime = domains.reduce((sum, d) => sum + d.time, 0);
+      focusTime = domains.filter(d => d.category === 'Work').reduce((sum, d) => sum + d.time, 0);
+      
+      const newData = { domains, totalTime, focusTime };
+      setData(newData);
+      setCategorizing(false);
+    }
+
+    // Get AI insight with USER's API key (from settings)
     if (s.groqApiKey && totalTime > 60) {
-      const aiInsight = await getAIInsight(s.groqApiKey, newData);
+      const aiInsight = await getAIInsight(s.groqApiKey, { domains, totalTime, focusTime });
       setInsight(aiInsight || 'Keep going!');
     }
   };

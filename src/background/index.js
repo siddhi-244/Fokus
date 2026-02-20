@@ -74,9 +74,44 @@ chrome.storage.local.get('settings').then(({ settings }) => {
   }
 });
 
+// Domains to ignore (browser internal pages, new tab, etc.)
+const ignoredDomains = [
+  'newtab',
+  'extensions',
+  'settings',
+  'history',
+  'bookmarks',
+  'downloads',
+  'chrome',
+  'about',
+  'blank',
+  'devtools',
+  'chrome-extension'
+];
+
+// Check if domain should be ignored
+const shouldIgnoreDomain = (domain) => {
+  if (!domain) return true;
+  return ignoredDomains.some(ignored => 
+    domain === ignored || 
+    domain.includes(ignored) ||
+    domain.startsWith('chrome') ||
+    domain.startsWith('about') ||
+    domain.startsWith('edge') ||
+    domain.startsWith('brave') ||
+    domain.startsWith('opera') ||
+    domain.startsWith('vivaldi')
+  );
+};
+
 // Extract domain from URL
 const getDomain = (url) => {
   try {
+    // Skip chrome:// and other internal URLs
+    if (!url || url.startsWith('chrome://') || url.startsWith('chrome-extension://') || 
+        url.startsWith('about:') || url.startsWith('edge://') || url.startsWith('brave://')) {
+      return null;
+    }
     return new URL(url).hostname.replace('www.', '');
   } catch { return null; }
 };
@@ -86,7 +121,8 @@ const getTodayKey = () => new Date().toISOString().split('T')[0];
 
 // Save time spent
 async function saveTimeSpent(domain, seconds) {
-  if (!domain || seconds < 1) return;
+  // Skip if no domain, too short, or should be ignored
+  if (!domain || seconds < 1 || shouldIgnoreDomain(domain)) return;
   
   const { trackingData = {} } = await chrome.storage.local.get('trackingData');
   const today = getTodayKey();

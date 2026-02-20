@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { ChevronLeft, ChevronRight, Flame, Target, Send } from 'lucide-react';
-import { categorize, categoryColors, formatTime, getDateKey, calculateStreak, chatWithAI } from '../utils/helpers';
+import { categorize, categoryColors, formatTime, getDateKey, calculateStreak, chatWithAI, loadCategoryCache, categorizeDomainsWithAI, getDevApiKey, shouldIgnoreDomain } from '../utils/helpers';
 import './App.css';
 
 export default function App() {
@@ -12,30 +12,73 @@ export default function App() {
   const [messages, setMessages] = useState([{ role: 'ai', text: 'Ask me anything about your productivity! 👋' }]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [domains, setDomains] = useState([]);
+  const [categorizing, setCategorizing] = useState(false);
+
+  // Developer API key (from .env) - for categorization
+  const devApiKey = getDevApiKey();
 
   useEffect(() => {
     loadData();
   }, []);
 
+  // Re-categorize when date changes
+  useEffect(() => {
+    if (Object.keys(trackingData).length > 0) {
+      categorizeCurrentDay();
+    }
+  }, [currentDate, trackingData]);
+
   const loadData = async () => {
+    // Load category cache first
+    await loadCategoryCache();
+    
     const { trackingData: td = {}, settings: s = {} } = await chrome.storage.local.get(['trackingData', 'settings']);
     setTrackingData(td);
     setSettings(s);
     setStreak(calculateStreak(td));
   };
 
+  const categorizeCurrentDay = async () => {
+    const dateKey = getDateKey(currentDate);
+    const dayData = trackingData[dateKey] || {};
+    // Filter out internal browser pages (newtab, chrome://, etc.)
+    const domainNames = Object.keys(dayData).filter(k => k !== '_idle' && !shouldIgnoreDomain(k));
+
+    // First render with cached categories
+    let domainList = domainNames
+      .map(domain => ({
+        domain,
+        time: dayData[domain].time || 0,
+        visits: dayData[domain].visits || 0,
+        category: categorize(domain)
+      }))
+      .sort((a, b) => b.time - a.time);
+    
+    setDomains(domainList);
+
+    // Categorize with DEV API key (your key from .env)
+    if (devApiKey && domainNames.length > 0) {
+      setCategorizing(true);
+      await categorizeDomainsWithAI(devApiKey, domainNames);
+      
+      // Re-render with AI categories
+      domainList = domainNames
+        .map(domain => ({
+          domain,
+          time: dayData[domain].time || 0,
+          visits: dayData[domain].visits || 0,
+          category: categorize(domain)
+        }))
+        .sort((a, b) => b.time - a.time);
+      
+      setDomains(domainList);
+      setCategorizing(false);
+    }
+  };
+
   const dateKey = getDateKey(currentDate);
   const dayData = trackingData[dateKey] || {};
-
-  const domains = Object.entries(dayData)
-    .filter(([k]) => k !== '_idle')
-    .map(([domain, d]) => ({
-      domain,
-      time: d.time || 0,
-      visits: d.visits || 0,
-      category: categorize(domain)
-    }))
-    .sort((a, b) => b.time - a.time);
 
   const totalTime = domains.reduce((s, d) => s + d.time, 0);
   const focusTime = domains.filter(d => d.category === 'Work').reduce((s, d) => s + d.time, 0);

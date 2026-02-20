@@ -94,10 +94,14 @@ cd fokus
 # 2. Install dependencies
 npm install
 
-# 3. Build the extension
+# 3. Set up your API key for AI categorization
+cp .env.example .env
+# Edit .env and add your Groq API key
+
+# 4. Build the extension
 npm run build
 
-# 4. Load in Chrome:
+# 5. Load in Chrome:
 #    - Open chrome://extensions/
 #    - Enable "Developer mode" (top right)
 #    - Click "Load unpacked"
@@ -120,11 +124,42 @@ npm run build
 
 ## ⚙️ Configuration
 
-### Setting Up AI Features
+### API Keys (Two Types!)
 
-1. Get a free API key from [Groq Console](https://console.groq.com/)
-2. Click the ⚙️ settings icon in the extension popup
-3. Paste your API key and save
+| Key | Purpose | Where to Set |
+|-----|---------|--------------|
+| **Developer Key** | AI category classification (Work/Social/etc.) | `.env` file (`VITE_GROQ_API_KEY`) |
+| **User Key** | AI Chat & Insights (optional for users) | Extension Settings ⚙️ |
+
+### 🔐 Environment Variables Setup
+
+1. **Get a free API key** from [console.groq.com](https://console.groq.com/)
+
+2. **Create your `.env` file:**
+```bash
+cp .env.example .env
+```
+
+3. **Add your API key to `.env`:**
+```env
+# ============================================
+# FOKUS ENVIRONMENT VARIABLES
+# ============================================
+
+# YOUR API Key (Developer) - Used for AI category classification
+# This runs automatically in the background to categorize websites
+VITE_GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+4. **Rebuild the extension:**
+```bash
+npm run build
+```
+
+> ⚠️ **Important:** Never commit your `.env` file! It's already in `.gitignore`.
+
+**User Key (Optional):**
+Users can add their own API key in the extension settings to enable AI Chat and personalized insights.
 
 ### Focus Mode
 
